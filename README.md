@@ -1,6 +1,6 @@
 ﻿# PageLift AI Audit (Single-URL Website Audit Tool)
 
-Lightweight AI-powered website audit tool built for the EIGHT25 24-hour assignment.
+Lightweight AI-powered website audit tool.
 
 It audits one page at a time, extracts factual metrics deterministically, and generates grounded AI insights + prioritized recommendations.
 
