@@ -1,0 +1,19 @@
+.env
+API KEY.txt
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+
+# Keep prompt log folder structure, but ignore generated log payloads.
+logs/prompt-logs/*.json
+!logs/prompt-logs/.gitkeep
+
