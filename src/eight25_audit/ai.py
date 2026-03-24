@@ -28,12 +28,20 @@ _METRIC_KEY_ONLY_RE = re.compile(
 )
 
 _PLACEHOLDER_REF_RE = re.compile(r"=\s*\.\.\.(?:\s|$)")
+_ANGLE_PLACEHOLDER_RE = re.compile(r"<[^>\n]+>")
+_LOW_VALUE_TEXT_SAMPLE_RE = re.compile(r"^\s*text_sample\s*=\s*(?:short|long)?\s*excerpt\s*$", re.I)
 
 
 def _contains_placeholder(text: str) -> bool:
     t = text or ""
     # Treat explicit placeholder refs (e.g. cta_count=...) as invalid.
     if _PLACEHOLDER_REF_RE.search(t):
+        return True
+    # Treat angle-bracket placeholder snippets (e.g. text_sample=<intro copy>) as invalid.
+    if _ANGLE_PLACEHOLDER_RE.search(t):
+        return True
+    # Reject low-information pseudo evidence labels.
+    if _LOW_VALUE_TEXT_SAMPLE_RE.match(t):
         return True
     # Also reject bare placeholder-only tokens.
     return t.strip() == "..."
@@ -46,6 +54,9 @@ def _contains_metric_reference(text: str) -> bool:
 
 def _validate_grounding(report: AiReport) -> list[str]:
     issues: list[str] = []
+
+    if not (report.summary or "").strip():
+        issues.append("summary must be non-empty")
 
     if len(report.recommendations) < 3 or len(report.recommendations) > 5:
         issues.append("recommendations count must be between 3 and 5")
@@ -65,6 +76,9 @@ def _validate_grounding(report: AiReport) -> list[str]:
                 issues.append(f"insights.{bucket}[{idx}] missing explicit metric reference")
 
     for idx, rec in enumerate(report.recommendations, start=1):
+        actions = rec.actions or []
+        if len(actions) < 2 or len(actions) > 4:
+            issues.append(f"recommendations[{idx}] actions count must be between 2 and 4")
         refs = rec.metric_references or []
         if not refs:
             issues.append(f"recommendations[{idx}] has empty metric_references")
@@ -159,55 +173,51 @@ def build_user_prompt(*, url: str, metrics: PageMetrics) -> tuple[str, dict[str,
     }
 
     output_template = {
-        "summary": "Brief summary grounded in metrics and notable limitations.",
+        "summary": "<string>",
         "insights": {
             "seo_structure": [
                 {
-                    "title": "Heading hierarchy is shallow",
-                    "evidence": ["headings.h1=1", "headings.h2=0", "word_count=180"],
-                    "why_it_matters": "Limited heading structure can reduce scanability and dilute keyword/topic organization."
+                    "title": "<string>",
+                    "evidence": ["word_count=123"],
+                    "why_it_matters": "<string>",
                 }
             ],
             "messaging_clarity": [
                 {
-                    "title": "Value proposition is not obvious above the fold",
-                    "evidence": ["text_sample=<first section lacks explicit offer>", "word_count=180"],
-                    "why_it_matters": "Users may struggle to understand the offer quickly, reducing engagement."
+                    "title": "<string>",
+                    "evidence": ["meta_title=example title"],
+                    "why_it_matters": "<string>",
                 }
             ],
             "cta_usage": [
                 {
-                    "title": "CTA coverage is limited",
-                    "evidence": ["cta_count=1", "sample_cta_texts=[\"Contact\"]"],
-                    "why_it_matters": "Too few or weak CTAs can lower progression to key conversion steps."
+                    "title": "<string>",
+                    "evidence": ["cta_count=2"],
+                    "why_it_matters": "<string>",
                 }
             ],
             "content_depth": [
                 {
-                    "title": "Content appears thin for intent coverage",
-                    "evidence": ["word_count=180", "headings.h2=0"],
-                    "why_it_matters": "Thin content can limit relevance for user questions and search intent breadth."
+                    "title": "<string>",
+                    "evidence": ["headings.h2=3"],
+                    "why_it_matters": "<string>",
                 }
             ],
             "ux_structural_concerns": [
                 {
-                    "title": "Media accessibility issue",
-                    "evidence": ["images.total_images=12", "images.missing_alt=7", "images.missing_alt_pct=58.33"],
-                    "why_it_matters": "Missing alt text weakens accessibility and can reduce image SEO clarity."
+                    "title": "<string>",
+                    "evidence": ["images.missing_alt=1"],
+                    "why_it_matters": "<string>",
                 }
             ],
         },
         "recommendations": [
             {
                 "priority": 1,
-                "title": "Strengthen information architecture and message clarity",
-                "reasoning": "Low structural depth and thin copy suggest visitors may not find clear value quickly.",
-                "actions": [
-                    "Add descriptive H2 sections for key user questions.",
-                    "Rewrite the hero copy to state audience, value proposition, and primary outcome.",
-                    "Align section headings to service/problem intent terms."
-                ],
-                "metric_references": ["word_count=180", "headings.h2=0", "text_sample=<intro copy>"],
+                "title": "<string>",
+                "reasoning": "<string>",
+                "actions": ["<string>", "<string>", "<string>"],
+                "metric_references": ["word_count=123", "headings.h2=3"],
             }
         ],
     }
@@ -221,10 +231,13 @@ def build_user_prompt(*, url: str, metrics: PageMetrics) -> tuple[str, dict[str,
         "- Keep insights specific and avoid generic best-practice filler.\n"
         "- Ground each claim in provided metrics or text_sample evidence.\n"
         "- If evidence is limited or indicates an error/blocked page, explicitly state that limitation.\n\n"
+        "- If using text_sample evidence, quote an actual phrase from text_sample; do not use labels like text_sample=short excerpt.\n\n"
+        "- Do not copy wording from OUTPUT_TEMPLATE_JSON; it is structural guidance only.\n\n"
         "Output completeness checklist (mandatory):\n"
         "- insights must include all 5 required buckets exactly once.\n"
         "- each insights bucket must include at least 1 item.\n"
         "- recommendations must include 3 to 5 items sorted by priority (1 is highest).\n"
+        "- prefer 4-5 recommendations when multiple distinct issues exist; use 3 only when evidence is limited.\n"
         "- each recommendation must include 2 to 4 actions and non-empty metric_references.\n\n"
         "Output MUST be a single JSON object (not an array) matching this template shape. "
         "Do not wrap in markdown. Do not add commentary.\n\n"
